@@ -1,1 +1,122 @@
-test
+name: CI/CD Pipeline
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  CI:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      artifact-name: build-artifact-${{ github.run_number }}
+    steps:
+      - name: Start CI Job
+        run: |
+          echo "=========================================="
+          echo "CI JOB STARTED"
+          echo "Event: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref }}"
+          echo "Run Number: ${{ github.run_number }}"
+          echo "=========================================="
+      
+      - name: Checkout code
+        run: echo "CI - Checking out code..."
+      
+      - uses: actions/checkout@v4
+      
+      - name: Run CI tasks
+        run: |
+          echo "CI: Running build and test tasks..."
+          mkdir -p build
+          echo "Build artifact content" > build/app.zip
+          echo "CI: Build completed successfully"
+      
+      - name: Upload artifact
+        id: upload
+        run: echo "CI - Uploading artifact 'build-artifact-${{ github.run_number }}'..."
+      
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-artifact-${{ github.run_number }}
+          path: build/
+          retention-days: 30
+      
+      - name: CI Complete
+        run: |
+          echo "=========================================="
+          echo "CI JOB COMPLETED SUCCESSFULLY"
+          echo "Artifact: build-artifact-${{ github.run_number }}"
+          echo "=========================================="
+          echo "## CI Job Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: ✅ Success" >> $GITHUB_STEP_SUMMARY
+          echo "- Artifact: build-artifact-${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Event: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+
+  CD:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: CI
+    if: github.event_name == 'push'
+    environment: PROD
+    steps:
+      - name: Start CD Job
+        run: |
+          echo "=========================================="
+          echo "CD JOB STARTED"
+          echo "Event: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref }}"
+          echo "Waiting for CI artifact..."
+          echo "=========================================="
+      
+      - name: Checkout code
+        run: echo "CD - Checking out code..."
+      
+      - uses: actions/checkout@v4
+      
+      - name: Download artifact
+        run: "echo \"CD: Downloading artifact '${{ needs.CI.outputs.artifact-name }}'...\""
+      
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.CI.outputs.artifact-name }}
+          path: build/
+      
+      - name: Verify artifact
+        continue-on-error: true
+        run: |
+          echo "CD: Verifying downloaded artifact..."
+          ls -la build/
+          echo "CD: Artifact verified"
+      
+      - name: Run CD tasks
+        run: |
+          echo "CD: Starting deployment process..."
+          echo "CD: Deploying to PROD environment..."
+          echo "CD: Deployment completed successfully"
+      
+      - name: CD Complete
+        run: |
+          echo "=========================================="
+          echo "CD JOB COMPLETED SUCCESSFULLY"
+          echo "Deployment to PROD: SUCCESS"
+          echo "=========================================="
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: ✅ Success" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: PROD" >> $GITHUB_STEP_SUMMARY
+          echo "- Artifact: ${{ needs.CI.outputs.artifact-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Deployed by: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
