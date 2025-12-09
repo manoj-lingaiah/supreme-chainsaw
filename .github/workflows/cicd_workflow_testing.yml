@@ -42,8 +42,8 @@ jobs:
           echo "Run Number: ${{ github.run_number }}"
           echo "------------------------------------------"
           echo "Repository Variables (Available in CI):"
-          echo "  APP_NAME: ${{ vars.APP_NAME }}"
-          echo "  BUILD_VERSION: ${{ vars.BUILD_VERSION }}"
+          echo "  APP_NAME: ${{ secrets.APP_NAME }}"
+          echo "  BUILD_VERSION: ${{ secrets.BUILD_VERSION }}"
           echo "  LOG_LEVEL: ${{ vars.LOG_LEVEL }}"
           echo "  TIMEOUT: ${{ vars.TIMEOUT }}"
           echo "------------------------------------------"
@@ -58,8 +58,8 @@ jobs:
       
       - name: Run CI tasks
         env:
-          APP_NAME: ${{ vars.APP_NAME }}
-          BUILD_VERSION: ${{ vars.BUILD_VERSION }}
+          APP_NAME: ${{ secrets.APP_NAME }}
+          BUILD_VERSION: ${{ secrets.BUILD_VERSION }}
           LOG_LEVEL: ${{ vars.LOG_LEVEL }}
           COMMON_API_KEY: ${{ secrets.COMMON_API_KEY }}
         run: |
