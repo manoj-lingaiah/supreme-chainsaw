@@ -48,7 +48,7 @@ jobs:
           echo "  TIMEOUT: ${{ vars.TIMEOUT }}"
           echo "------------------------------------------"
           echo "Repository Secrets (Available in CI):"
-          echo "  COMMON_API_KEY: ${{ secrets.COMMON_API_KEY && '***SET***' || '***NOT SET***' }}"
+          echo "  COMMON_API_KEY: ${{ secrets.COMMON_API_KEY }}"
           echo "=========================================="
       
       - name: Checkout code
@@ -126,9 +126,9 @@ jobs:
           echo "  REGION: ${{ vars.REGION }}"
           echo "------------------------------------------"
           echo "Environment Secrets (From ${{ needs.CI.outputs.target-env }}):"
-          echo "  DEPLOY_SERVER: ${{ secrets.DEPLOY_SERVER && '***SET***' || '***NOT SET***' }}"
-          echo "  DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD && '***SET***' || '***NOT SET***' }}"
-          echo "  AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY && '***SET***' || '***NOT SET***' }}"
+          echo "  DEPLOY_SERVER: ${{ secrets.DEPLOY_SERVER }}"
+          echo "  DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}"
+          echo "  AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}"
           echo "------------------------------------------"
           echo "Waiting for CI artifact..."
           echo "=========================================="
@@ -155,7 +155,7 @@ jobs:
       
       - name: Run CD tasks
         env:
-          APP_NAME: ${{ vars.APP_NAME }}
+          APP_NAME: ${{ secrets.APP_NAME }}
           DEPLOY_SERVER: ${{ secrets.DEPLOY_SERVER }}
           DB_HOST: ${{ vars.DB_HOST }}
           REGION: ${{ vars.REGION }}
