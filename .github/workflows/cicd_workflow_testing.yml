@@ -1,0 +1,230 @@
+name: CI/CD Pipeline
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - qa
+      - dev
+      - feat1
+  push:
+    branches:
+      - main
+      - qa
+      - dev
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  RETENTION_DAYS: 30
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  CI:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      artifact-name: build-artifact-${{ github.run_number }}
+      target-env: ${{ github.ref == 'refs/heads/main' && 'PROD' || github.ref == 'refs/heads/qa' && 'UAT' || github.ref == 'refs/heads/dev' && 'DEV' || 'UNKNOWN' }}
+    steps:
+      - name: Start CI Job
+        run: |
+          echo "=========================================="
+          echo "CI JOB STARTED"
+          echo "Event: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref }}"
+          echo "Run Number: ${{ github.run_number }}"
+          echo "------------------------------------------"
+          echo "Repository Variables (Available in CI):"
+          echo "  APP_NAME: ${{ secrets.APP_NAME }}"
+          echo "  BUILD_VERSION: ${{ secrets.BUILD_VERSION }}"
+          echo "  LOG_LEVEL: ${{ vars.LOG_LEVEL }}"
+          echo "  TIMEOUT: ${{ vars.TIMEOUT }}"
+          echo "------------------------------------------"
+          echo "Repository Secrets (Available in CI):"
+          echo "  COMMON_API_KEY: ${{ secrets.COMMON_API_KEY }}"
+          echo "=========================================="
+      
+      - name: Checkout code
+        run: echo "CI - Checking out code..."
+      
+      - uses: actions/checkout@v4
+      
+      - name: Run CI tasks
+        env:
+          APP_NAME: ${{ secrets.APP_NAME }}
+          BUILD_VERSION: ${{ secrets.BUILD_VERSION }}
+          LOG_LEVEL: ${{ vars.LOG_LEVEL }}
+          COMMON_API_KEY: ${{ secrets.COMMON_API_KEY }}
+        run: |
+          echo "CI: Running build and test tasks..."
+          echo "CI: Building $APP_NAME version $BUILD_VERSION"
+          echo "CI: Log level set to: $LOG_LEVEL"
+          mkdir -p build
+          echo "Build artifact content" > build/app.zip
+          echo "CI: Build completed successfully"
+      
+      - name: Upload artifact
+        id: upload
+        run: echo "CI - Uploading artifact 'build-artifact-${{ github.run_number }}'..."
+      
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-artifact-${{ github.run_number }}
+          path: build/
+          retention-days: ${{ fromJson(env.RETENTION_DAYS) }}
+      
+      - name: CI Complete
+        run: |
+          echo "=========================================="
+          echo "CI JOB COMPLETED SUCCESSFULLY"
+          echo "Artifact: build-artifact-${{ github.run_number }}"
+          echo "=========================================="
+          echo "## CI Job Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: ✅ Success" >> $GITHUB_STEP_SUMMARY
+          echo "- Artifact: build-artifact-${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Event: ${{ github.event_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+      
+      - name: CI Failed
+        if: failure()
+        run: |
+          echo "⚠️ CI job failed. Check logs above for details."
+          echo "## ❌ CI Job Failed" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Run: ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
+
+  Approval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: CI
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: PROD-Approval
+    steps:
+      - name: Wait for Approval
+        run: |
+          echo "=========================================="
+          echo "APPROVAL REQUIRED FOR PROD DEPLOYMENT"
+          echo "Environment: PROD"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Artifact: ${{ needs.CI.outputs.artifact-name }}"
+          echo "Timeout: 1 hour"
+          echo "=========================================="
+          echo "## ⏳ Awaiting PROD Approval" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: PROD" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Requested by: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Timeout: 60 minutes" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Approval Granted
+        run: |
+          echo "✅ Approval granted for PROD deployment"
+          echo "Approved by: ${{ github.actor }}"
+          echo "## ✅ PROD Deployment Approved" >> $GITHUB_STEP_SUMMARY
+          echo "- Approved by: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Approved at: $(date)" >> $GITHUB_STEP_SUMMARY
+
+  CD:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [CI, Approval]
+    if: |
+      github.event_name == 'push' && 
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qa' || github.ref == 'refs/heads/dev') &&
+      (always() && needs.CI.result == 'success' && (needs.Approval.result == 'success' || needs.Approval.result == 'skipped'))
+    environment: ${{ github.ref == 'refs/heads/main' && 'PROD' || github.ref == 'refs/heads/qa' && 'UAT' || github.ref == 'refs/heads/dev' && 'DEV' }}
+    steps:
+      - name: Start CD Job
+        run: |
+          echo "=========================================="
+          echo "CD JOB STARTED"
+          echo "Event: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref }}"
+          echo "Target Environment: ${{ needs.CI.outputs.target-env }}"
+          echo "------------------------------------------"
+          echo "Repository Variables (Still Available):"
+          echo "  APP_NAME: ${{ secrets.APP_NAME }}"
+          echo "  BUILD_VERSION: ${{ secrets.BUILD_VERSION }}"
+          echo "  LOG_LEVEL: ${{ vars.LOG_LEVEL }}"
+          echo "  TIMEOUT: ${{ vars.TIMEOUT }}"
+          echo "------------------------------------------"
+          echo "Environment Variables (From ${{ needs.CI.outputs.target-env }}):"
+          echo "  DB_HOST: ${{ vars.DB_HOST }}"
+          echo "  REGION: ${{ vars.REGION }}"
+          echo "------------------------------------------"
+          echo "Environment Secrets (From ${{ needs.CI.outputs.target-env }}):"
+          echo "  DEPLOY_SERVER: ${{ secrets.DEPLOY_SERVER }}"
+          echo "  DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}"
+          echo "  AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}"
+          echo "------------------------------------------"
+          echo "Waiting for CI artifact..."
+          echo "=========================================="
+      
+      - name: Checkout code
+        run: echo "CD - Checking out code..."
+      
+      - uses: actions/checkout@v4
+      
+      - name: Download artifact
+        run: "echo \"CD: Downloading artifact '${{ needs.CI.outputs.artifact-name }}'...\""
+      
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.CI.outputs.artifact-name }}
+          path: build/
+      
+      - name: Verify artifact
+        continue-on-error: true
+        run: |
+          echo "CD: Verifying downloaded artifact..."
+          ls -la build/
+          echo "CD: Artifact verified"
+      
+      - name: Run CD tasks
+        env:
+          APP_NAME: ${{ secrets.APP_NAME }}
+          DEPLOY_SERVER: ${{ secrets.DEPLOY_SERVER }}
+          DB_HOST: ${{ vars.DB_HOST }}
+          REGION: ${{ vars.REGION }}
+          DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
+          AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
+        run: |
+          echo "CD: Starting deployment process..."
+          echo "CD: Deploying $APP_NAME to ${{ needs.CI.outputs.target-env }} environment..."
+          echo "CD: Target Server: $DEPLOY_SERVER"
+          echo "CD: Database Host: $DB_HOST"
+          echo "CD: Region: $REGION"
+          echo "CD: Using AWS credentials for deployment"
+          echo "CD: Connecting to database..."
+          echo "CD: Deployment completed successfully"
+      
+      - name: CD Complete
+        run: |
+          echo "=========================================="
+          echo "CD JOB COMPLETED SUCCESSFULLY"
+          echo "Deployment to ${{ needs.CI.outputs.target-env }}: SUCCESS"
+          echo "=========================================="
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: ✅ Success" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: ${{ needs.CI.outputs.target-env }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Deploy Server: ${{ secrets.DEPLOY_SERVER }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Region: ${{ vars.REGION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Artifact: ${{ needs.CI.outputs.artifact-name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Deployed by: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+      
+      - name: CD Failed
+        if: failure()
+        run: |
+          echo "⚠️ CD job failed. Check logs above for details."
+          echo "## ❌ CD Job Failed" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: ${{ needs.CI.outputs.target-env }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Run: ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
