@@ -100,11 +100,45 @@ jobs:
           echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- Run: ${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
 
+  Approval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: CI
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: PROD-Approval
+    steps:
+      - name: Wait for Approval
+        run: |
+          echo "=========================================="
+          echo "APPROVAL REQUIRED FOR PROD DEPLOYMENT"
+          echo "Environment: PROD"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Artifact: ${{ needs.CI.outputs.artifact-name }}"
+          echo "Timeout: 1 hour"
+          echo "=========================================="
+          echo "## ⏳ Awaiting PROD Approval" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: PROD" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Requested by: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Timeout: 60 minutes" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Approval Granted
+        run: |
+          echo "✅ Approval granted for PROD deployment"
+          echo "Approved by: ${{ github.actor }}"
+          echo "## ✅ PROD Deployment Approved" >> $GITHUB_STEP_SUMMARY
+          echo "- Approved by: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Approved at: $(date)" >> $GITHUB_STEP_SUMMARY
+
   CD:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: CI
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qa' || github.ref == 'refs/heads/dev')
+    needs: [CI, Approval]
+    if: |
+      github.event_name == 'push' && 
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/qa' || github.ref == 'refs/heads/dev') &&
+      (always() && needs.CI.result == 'success' && (needs.Approval.result == 'success' || needs.Approval.result == 'skipped'))
     environment: ${{ github.ref == 'refs/heads/main' && 'PROD' || github.ref == 'refs/heads/qa' && 'UAT' || github.ref == 'refs/heads/dev' && 'DEV' }}
     steps:
       - name: Start CD Job
