@@ -84,6 +84,8 @@ jobs:
   CD_TEST01_MAIN:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment:
+      name: TEST01
     env:
       GIT_ENVIRONMENT: TEST01
     steps:
