@@ -1,0 +1,153 @@
+name: "GT - Databricks Asset Bundle Trunk CI/CD"
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+# Concurrency control to avoid duplicate runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================================================
+  # CI Job: Run for PRs to main from feature/* or release/*
+  # ==========================================================================
+  CI:
+    if: |
+      github.event_name == 'pull_request' &&
+      (
+        startsWith(github.head_ref, 'feature/') ||
+        startsWith(github.head_ref, 'release/')
+      )
+    runs-on: ubuntu-latest
+    environment:
+      name: DEV
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+      packages: read
+      actions: read
+      security-events: write
+    steps:
+      - name: Echo DEV environment variable mapping
+        run: |
+          echo "=========================================="
+          echo "CI environment variable mapping check"
+          echo "Environment: DEV"
+          echo "GIT_ENVIRONMENT: DEV"
+          echo "=========================================="
+          echo "Configuration variables available in this job:"
+          echo '${{ toJson(vars) }}'
+          echo "\n## DEV Environment Variable Check" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: DEV" >> $GITHUB_STEP_SUMMARY
+          echo "- Variables context dumped to job logs" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # CD Job: Run only for feature/* PRs, deploy to DEV
+  # ============================================================================
+  CD_DEV_PR:
+    needs: [CI]
+    if: |
+      github.event_name == 'pull_request' &&
+      startsWith(github.head_ref, 'feature/') &&
+      needs.CI.result == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: DEV
+    steps:
+      - name: Echo DEV environment variable mapping
+        run: |
+          echo "=========================================="
+          echo "CD DEV PR environment variable mapping check"
+          echo "Environment: DEV"
+          echo "GIT_ENVIRONMENT: DEV"
+          echo "=========================================="
+          echo "Configuration variables available in this job:"
+          echo '${{ toJson(vars) }}'
+          echo "\n## CD DEV Environment Variable Check" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: DEV" >> $GITHUB_STEP_SUMMARY
+          echo "- Variables context dumped to job logs" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # Release Flow on push to main:
+  # 1) Deploy to TEST01
+  # 2) Wait for PROD approval (max 30 minutes)
+  # 3) Deploy to PROD after approval
+  # ============================================================================
+  CD_TEST01_MAIN:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      GIT_ENVIRONMENT: TEST01
+    steps:
+      - name: Echo TEST01 environment variable mapping
+        run: |
+          echo "=========================================="
+          echo "CD TEST01 environment variable mapping check"
+          echo "Environment: TEST01"
+          echo "GIT_ENVIRONMENT: TEST01"
+          echo "=========================================="
+          echo "Configuration variables available in this job:"
+          echo '${{ toJson(vars) }}'
+          echo "\n## CD TEST01 Environment Variable Check" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: TEST01" >> $GITHUB_STEP_SUMMARY
+          echo "- Variables context dumped to job logs" >> $GITHUB_STEP_SUMMARY
+
+  Approval_PROD_MAIN:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: CD_TEST01_MAIN
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.CD_TEST01_MAIN.result == 'success'
+    environment:
+      name: PROD-Approval
+    steps:
+      - name: Wait for PROD Approval
+        run: |
+          echo "=========================================="
+          echo "APPROVAL REQUIRED FOR PROD DEPLOYMENT"
+          echo "Environment: PROD"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Timeout: 30 minutes"
+          echo "=========================================="
+          echo "## Awaiting PROD Approval" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: PROD" >> $GITHUB_STEP_SUMMARY
+          echo "- Branch: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Requested by: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Timeout: 30 minutes" >> $GITHUB_STEP_SUMMARY
+      - name: Approval Granted
+        run: |
+          echo "Approval granted for PROD deployment"
+          echo "Approved by: ${{ github.actor }}"
+          echo "## PROD Deployment Approved" >> $GITHUB_STEP_SUMMARY
+          echo "- Approved by: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Approved at: $(date)" >> $GITHUB_STEP_SUMMARY
+  CD_PROD_MAIN:
+    needs: [CD_TEST01_MAIN, Approval_PROD_MAIN]
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.CD_TEST01_MAIN.result == 'success' &&
+      needs.Approval_PROD_MAIN.result == 'success'
+    runs-on: ubuntu-latest
+    environment:
+      name: PROD
+    steps:
+      - name: Echo PROD environment variable mapping
+        run: |
+          echo "=========================================="
+          echo "CD PROD environment variable mapping check"
+          echo "Environment: PROD"
+          echo "GIT_ENVIRONMENT: PROD"
+          echo "=========================================="
+          echo "Configuration variables available in this job:"
+          echo '${{ toJson(vars) }}'
+          echo "\n## CD PROD Environment Variable Check" >> $GITHUB_STEP_SUMMARY
+          echo "- Environment: PROD" >> $GITHUB_STEP_SUMMARY
+          echo "- Variables context dumped to job logs" >> $GITHUB_STEP_SUMMARY
